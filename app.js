@@ -12,6 +12,7 @@ const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const FacebookStrategy = require("passport-facebook").Strategy;
 const findOrCreate = require("mongoose-findorcreate");
 
 
@@ -26,10 +27,12 @@ app.use(passport.session());
 
 mongoose.connect("mongodb://127.0.0.1:27017/userDB", {useNewUrlParser: true, useUnifiedTopology: true});
 
+//Declare user schema including facebook and google id
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
-    googleId: String
+    googleId: String,
+    facebookId: String
 });
 
 userSchema.plugin(passportLocalMongoose);
@@ -48,6 +51,7 @@ passport.deserializeUser(function (user, done) {
     done(null, user);
 });
 
+//Configure Google Strategy
 passport.use(new GoogleStrategy({
     clientID: process.env.CLIENT_ID,
     clientSecret: process.env.CLIENT_SECRET,
@@ -61,10 +65,25 @@ passport.use(new GoogleStrategy({
     }
 ));
 
+//Configure Facebook Strategy
+passport.use(new FacebookStrategy({
+    clientID: process.env.FB_APP_ID,
+    clientSecret: process.env.FB_SECRET,
+    callbackURL: "http://localhost:3000/auth/facebook/secrets",
+    profileFields: ["id", "displayName", "email"]
+},
+    function (accessToken, refreshToken, profile, cb) {
+        User.findOrCreate({ facebookId: profile.id }, function (err, user) {
+            return cb(err, user);
+        });
+    }
+));
+
 app.get("/", function (req, res) {
     res.render("home");
 });
 
+//Google Authentication
 app.route("/auth/google")
 
   .get(passport.authenticate("google", { scope: ["profile"] })
@@ -77,6 +96,22 @@ app.get("/auth/google/secrets",
      res.redirect("/secrets");
     }
 );
+
+//Facebook Authentication
+app.route("/auth/facebook")
+
+    .get(passport.authenticate("facebook")
+    );
+
+
+app.get("/auth/facebook/secrets",
+    passport.authenticate("facebook", { failureRedirect: "/login" }),
+    function (req, res) {
+
+        res.redirect("/secrets");
+    }
+);
+
 app.get("/register", function (req, res) {
     res.render("register");
 });
@@ -124,9 +159,11 @@ app.post("/login", function (req, res) {
     });
 });
 
-app.get("/logout", function (req, res) {
-    req.logout();
-    res.redirect("/");
+app.get("/logout", (req, res) => {
+    req.logout(req.user, err => {
+        if (err) return next(err);
+        res.redirect("/");
+    });
 });
 
 
